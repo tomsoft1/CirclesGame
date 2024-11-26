@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flame/components.dart';
 import 'package:flame/effects.dart';
+import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
 
@@ -39,17 +40,6 @@ class Player extends PositionComponent {
 
   void move(Vector2 delta) {
     position.add(delta);
-  }
-}
-
-class Power extends PositionComponent {
-  static final _paint = Paint()
-    ..color = const Color.fromARGB(255, 98, 240, 223)
-    ..strokeWidth = 2.0;
-  @override
-  void render(Canvas canvas) {
-    super.render(canvas);
-    canvas.drawRect(size.toRect(), _paint);
   }
 }
 
@@ -135,6 +125,16 @@ class Platform extends PositionComponent {
   }
 }
 
+class RedCircle extends PositionComponent with HasPaint {
+  static final _paint = Paint()..color = Colors.red;
+
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+    canvas.drawCircle(Offset.zero, width, _paint);
+  }
+}
+
 class AngleEffect extends Effect with EffectTarget<Platform> {
   AngleEffect(super.controller);
   @override
@@ -146,7 +146,6 @@ class AngleEffect extends Effect with EffectTarget<Platform> {
 class CirclesGame extends FlameGame with TapDetector {
   late Player player;
   late Arrow arrow;
-  late Power power;
   late PowerEffect powerEffect;
   late TextComponent scoreCounter;
   int score = 0;
@@ -201,14 +200,15 @@ class CirclesGame extends FlameGame with TapDetector {
         anchor: Anchor.center,
         textRenderer: scoreRendrer,
         text: "Score:$score Num:$targetPlatform");
-    scoreCounter.positionType = PositionType.viewport;
+//    scoreCounter.positionType = PositionType.viewport;
     add(scoreCounter);
 
     add(player);
 
 //    player.position.add(Vector2(-20.0, -40.0));
     player.add(arrow);
-    camera.followComponent(player, relativeOffset: const Anchor(0.5, 0.8));
+    camera.follow(player);
+//    camera.followComponent(player, relativeOffset: const Anchor(0.5, 0.8));
 
     setTarget(targetPlatform);
     print("After:");
@@ -221,6 +221,9 @@ class CirclesGame extends FlameGame with TapDetector {
     if (powerEffect.parent == null) arrow.add(powerEffect);
   }
 
+  // Main action: the player pressed up the button ->
+  // We need to jump according to the defined power and angle
+  //
   @override
   void onTapUp(TapUpInfo info) {
     print("tap up");
@@ -237,47 +240,63 @@ class CirclesGame extends FlameGame with TapDetector {
     var dy = dist * sin(arrow.angle + pi / 2);
     player.add(MoveEffect.by(
         Vector2(dx, dy), CurvedEffectController(0.5, Curves.easeOut),
-        onComplete: () {
-      var target = platforms[targetPlatform];
-      var dist = target.position.distanceTo(player.position);
-      print('Distance:$dist');
-      if (dist < target.smallSize) {
-        print("small size hit");
-      }
-      if (dist < target.width) {
-        platforms[targetPlatform]
-            .add(AngleEffect(EffectController(duration: 2)));
-        print('You,ve made it....');
-        targetPlatform = targetPlatform + 1;
-        score += 1;
-        if (targetPlatform == nbPlatforms) {
-          print("Level Ended!");
-          nextLevel();
-        }
-        setTarget(targetPlatform);
-        if (allEffect.parent == null) arrow.add(allEffect);
-        TextComponent textWellDone =
-            TextComponent(text: "Well done", textRenderer: textPaint);
-        textWellDone.add(RemoveEffect(delay: 1.0));
-/*        textWellDone.add(SequenceEffect([
-          SizeEffect.to(Vector2(1.1, 1.1), EffectController(duration: 0.5)),
-          RemoveEffect()
-        ]));*/
-        player.add(textWellDone);
-        scoreCounter.text = "Score:$score Num:$targetPlatform";
-        arrow.add(OpacityEffect.to(1.0, EffectController(duration: 0.5)));
-      } else {
-        player.add(ScaleEffect.to(
-            Vector2.zero(),
-            EffectController(
-              duration: 1.0,
-            ), onComplete: () {
-          resetGame();
-        }));
-      }
-    }));
+        onComplete: landingResult));
   }
 
+  // Called at the end of the move
+  // We will see where we are at this moment
+  //
+  landingResult() {
+    var target = platforms[targetPlatform];
+    var dist = target.position.distanceTo(player.position);
+    print('Distance:$dist');
+    print("${target.smallSize} $dist");
+    if (dist + player.width / 2 < target.smallSize) {
+      print("small size hit");
+      RedCircle red = RedCircle()
+        ..width = target.smallSize
+        ..scale = Vector2(0, 0);
+      target.add(red);
+      red.add(SequenceEffect([
+        ScaleEffect.to(Vector2(0.5, 0.5), EffectController(duration: 0.5)),
+        RemoveEffect()
+      ]));
+    }
+    if (dist < target.width) {
+      platforms[targetPlatform].add(AngleEffect(EffectController(duration: 2)));
+      print('You,ve made it....');
+      targetPlatform = targetPlatform + 1;
+      score += 1;
+      if (targetPlatform == nbPlatforms) {
+        print("Level Ended!");
+        nextLevel();
+      }
+      setTarget(targetPlatform);
+      if (allEffect.parent == null) arrow.add(allEffect);
+      TextComponent textWellDone =
+          TextComponent(text: "Well done", textRenderer: textPaint);
+      textWellDone.add(RemoveEffect(delay: 1.0));
+      textWellDone.add(SequenceEffect([
+        ScaleEffect.to(Vector2(1.1, 1.1), EffectController(duration: 0.2)),
+        ScaleEffect.to(Vector2(0, 0), EffectController(duration: 0.5)),
+        RemoveEffect()
+      ]));
+      player.add(textWellDone);
+      scoreCounter.text = "Score:$score Num:$targetPlatform";
+      arrow.add(OpacityEffect.to(1.0, EffectController(duration: 0.5)));
+    } else {
+      player.add(ScaleEffect.to(
+          Vector2.zero(),
+          EffectController(
+            duration: 1.0,
+          ), onComplete: () {
+        resetGame();
+      }));
+    }
+  }
+
+  // Initialise a new level, create randmly all the plaform for this level
+  //
   initLevel(int maxPlatforms) {
     nbPlatforms = maxPlatforms;
 
@@ -303,8 +322,11 @@ class CirclesGame extends FlameGame with TapDetector {
     if (allEffect.parent == null) arrow.add(allEffect);
   }
 
+  // Game setup .
   resetGame() {
-    score = -10;
+    score =
+        -10; // Because we will juste create a new level after that will add ten point
+    // Tel that all plaform are not yet rechached
     for (int i = 0; i < nbPlatforms; i++) {
       platforms[i].passed = false;
       platforms[i].angle = 0;
@@ -312,6 +334,7 @@ class CirclesGame extends FlameGame with TapDetector {
     nextLevel();
   }
 
+  // When a level is reached
   nextLevel() {
     score += 10;
     targetPlatform = 1;
@@ -322,6 +345,7 @@ class CirclesGame extends FlameGame with TapDetector {
     if (allEffect.parent == null) arrow.add(allEffect);
   }
 
+// When a platform reach was ok, let's prepare the next jul
   setTarget(int target) {
     powerEffect.reset();
     allEffect.controller.setToStart();
